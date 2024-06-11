@@ -1,0 +1,107 @@
+From 1eb94dccd9a071f1c302c124aa2278b309a283bf Mon Sep 17 00:00:00 2001
+From: Tatyana Emelyanova <lisstic.tt@gmail.com>
+Date: Sat, 3 Nov 2018 16:56:56 +0300
+Subject: [PATCH] The LOAD_OTUS opcode added
+
+---
+ Include/opcode.h        |  1 +
+ Lib/opcode.py           |  3 +++
+ Python/ceval.c          | 17 +++++++++++++++++
+ Python/opcode_targets.h |  2 +-
+ Python/peephole.c       | 10 ++++++++++
+ new_opcode.patch        |  0
+ 6 files changed, 32 insertions(+), 1 deletion(-)
+ create mode 100644 new_opcode.patch
+
+diff --git a/Include/opcode.h b/Include/opcode.h
+index 9ed5487..0efdf89 100644
+--- a/Include/opcode.h
++++ b/Include/opcode.h
+@@ -159,6 +159,7 @@ extern "C" {
+ #define SET_ADD         146
+ #define MAP_ADD         147
+ 
++#define LOAD_OTUS       148
+ 
+ enum cmp_op {PyCmp_LT=Py_LT, PyCmp_LE=Py_LE, PyCmp_EQ=Py_EQ, PyCmp_NE=Py_NE, PyCmp_GT=Py_GT, PyCmp_GE=Py_GE,
+ 	     PyCmp_IN, PyCmp_NOT_IN, PyCmp_IS, PyCmp_IS_NOT, PyCmp_EXC_MATCH, PyCmp_BAD};
+diff --git a/Lib/opcode.py b/Lib/opcode.py
+index e403365..88b1775 100644
+--- a/Lib/opcode.py
++++ b/Lib/opcode.py
+@@ -189,4 +189,7 @@ EXTENDED_ARG = 145
+ def_op('SET_ADD', 146)
+ def_op('MAP_ADD', 147)
+ 
++def_op('LOAD_OTUS', 148)
++hasconst.append(148)
++
+ del def_op, name_op, jrel_op, jabs_op
+diff --git a/Python/ceval.c b/Python/ceval.c
+index 2088a27..6e99c3a 100644
+--- a/Python/ceval.c
++++ b/Python/ceval.c
+@@ -1240,6 +1240,23 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
+             FAST_DISPATCH();
+         }
+ 
++        TARGET(LOAD_OTUS)
++        {
++            x = GETLOCAL(0);
++            if (x != NULL) {
++                Py_INCREF(x);
++                PUSH(x);
++
++                x = GETITEM(consts, oparg);
++                Py_INCREF(x);
++                PUSH(x);
++                FAST_DISPATCH();
++            }
++            format_exc_check_arg(PyExc_UnboundLocalError,
++                UNBOUNDLOCAL_ERROR_MSG,
++                PyTuple_GetItem(co->co_varnames, oparg));
++        }
++
+         PREDICTED_WITH_ARG(STORE_FAST);
+         TARGET(STORE_FAST)
+         {
+diff --git a/Python/opcode_targets.h b/Python/opcode_targets.h
+index 95eb127..8c29b98 100644
+--- a/Python/opcode_targets.h
++++ b/Python/opcode_targets.h
+@@ -147,7 +147,7 @@ static void *opcode_targets[256] = {
+     &&TARGET_EXTENDED_ARG,
+     &&TARGET_SET_ADD,
+     &&TARGET_MAP_ADD,
+-    &&_unknown_opcode,
++    &&TARGET_LOAD_OTUS,
+     &&_unknown_opcode,
+     &&_unknown_opcode,
+     &&_unknown_opcode,
+diff --git a/Python/peephole.c b/Python/peephole.c
+index 11f6f88..dddcf4b 100644
+--- a/Python/peephole.c
++++ b/Python/peephole.c
+@@ -362,6 +362,16 @@ PyCode_Optimize(PyObject *code, PyObject* consts, PyObject *names,
+         cumlc = 0;
+ 
+         switch (opcode) {
++            /* Replace LOAD_FAST 0 LOAD_CONST ARG
++               with LOAD_OTUS ARG */
++            case LOAD_FAST:
++                j = GETARG(codestr, i);
++                if (codestr[i+3] != LOAD_CONST || j != 0)
++                    continue;
++                codestr[i+3] = LOAD_OTUS;
++                memset(codestr+i, NOP, 3);
++                break;
++
+             /* Replace UNARY_NOT POP_JUMP_IF_FALSE
+                with    POP_JUMP_IF_TRUE */
+             case UNARY_NOT:
+diff --git a/new_opcode.patch b/new_opcode.patch
+new file mode 100644
+index 0000000..e69de29
+-- 
+1.8.3.1
+
